@@ -1,118 +1,197 @@
-import os
-import socket
+import asyncio
 import subprocess
-import time
+from bless import (
+    BlessServer, BlessGATTCharacteristic,
+    GATTCharacteristicProperties, GATTAttributePermissions
+)
 from datetime import datetime
-
 from PIL import ImageGrab
+import os
+import io
+import re
 
-HOST = "0.0.0.0"
-PORT = 65432
-HOTSPOT_IP = "192.168.137.1"
-
-SS_FOLDER = f"C:\\Users\\{os.getlogin()}\\Desktop\\testing"
+SS_FOLDER = os.path.join(os.getenv("LOCALAPPDATA"), "RemoteSS")
 if not os.path.exists(SS_FOLDER):
     os.makedirs(SS_FOLDER)
 
-encd_cmd = "QQBkAGQALQBUAHkAcABlACAALQBBAHMAcwBlAG0AYgBsAHkATgBhAG0AZQAgAFMAeQBzAHQAZQBtAC4AUgB1AG4AdABpAG0AZQAuAFcAaQBuAGQAbwB3AHMAUgB1AG4AdABpAG0AZQAKACQAYQBzAFQAYQBzAGsARwBlAG4AZQByAGkAYwAgAD0AIAAoAFsAUwB5AHMAdABlAG0ALgBXAGkAbgBkAG8AdwBzAFIAdQBuAHQAaQBtAGUAUwB5AHMAdABlAG0ARQB4AHQAZQBuAHMAaQBvAG4AcwBdAC4ARwBlAHQATQBlAHQAaABvAGQAcwAoACkAIAB8ACAAPwAgAHsAIAAkAF8ALgBOAGEAbQBlACAALQBlAHEAIAAnAEEAcwBUAGEAcwBrACcAIAAtAGEAbgBkACAAJABfAC4ARwBlAHQAUABhAHIAYQBtAGUAdABlAHIAcwAoACkALgBDAG8AdQBuAHQAIAAtAGUAcQAgADEAIAAtAGEAbgBkACAAJABfAC4ARwBlAHQAUABhAHIAYQBtAGUAdABlAHIAcwAoACkAWwAwAF0ALgBQAGEAcgBhAG0AZQB0AGUAcgBUAHkAcABlAC4ATgBhAG0AZQAgAC0AZQBxACAAJwBJAEEAcwB5AG4AYwBPAHAAZQByAGEAdABpAG8AbgBgADEAJwAgAH0AKQBbADAAXQAKAAoARgB1AG4AYwB0AGkAbwBuACAAQQB3AGEAaQB0ACgAJABXAGkAbgBSAHQAVABhAHMAawAsACAAJABSAGUAcwB1AGwAdABUAHkAcABlACkAIAB7AAoAIAAgACAAIAAgACQAYQBzAFQAYQBzAGsAIAA9ACAAJABhAHMAVABhAHMAawBHAGUAbgBlAHIAaQBjAC4ATQBhAGsAZQBHAGUAbgBlAHIAaQBjAE0AZQB0AGgAbwBkACgAJABSAGUAcwB1AGwAdABUAHkAcABlACkACgAgACAAIAAgACAAJABuAGUAdABUAGEAcwBrACAAPQAgACQAYQBzAFQAYQBzAGsALgBJAG4AdgBvAGsAZQAoACQAbgB1AGwAbAAsACAAQAAoACQAVwBpAG4AUgB0AFQAYQBzAGsAKQApAAoAIAAgACAAIAAgACQAbgBlAHQAVABhAHMAawAuAFcAYQBpAHQAKAAtADEAKQAgAHwAIABPAHUAdAAtAE4AdQBsAGwACgAgACAAIAAgACAAJABuAGUAdABUAGEAcwBrAC4AUgBlAHMAdQBsAHQACgB9AAoACgBGAHUAbgBjAHQAaQBvAG4AIABBAHcAYQBpAHQAQQBjAHQAaQBvAG4AKAAkAFcAaQBuAFIAdABBAGMAdABpAG8AbgApACAAewAKACAAIAAgACAAIAAkAGEAcwBUAGEAcwBrACAAPQAgACgAWwBTAHkAcwB0AGUAbQAuAFcAaQBuAGQAbwB3AHMAUgB1AG4AdABpAG0AZQBTAHkAcwB0AGUAbQBFAHgAdABlAG4AcwBpAG8AbgBzAF0ALgBHAGUAdABNAGUAdABoAG8AZABzACgAKQAgAHwAIAA/ACAAewAgACQAXwAuAE4AYQBtAGUAIAAtAGUAcQAgACcAQQBzAFQAYQBzAGsAJwAgAC0AYQBuAGQAIAAkAF8ALgBHAGUAdABQAGEAcgBhAG0AZQB0AGUAcgBzACgAKQAuAEMAbwB1AG4AdAAgAC0AZQBxACAAMQAgAC0AYQBuAGQAIAAhACQAXwAuAEkAcwBHAGUAbgBlAHIAaQBjAE0AZQB0AGgAbwBkACAAfQApAFsAMABdAAoAIAAgACAAIAAgACQAbgBlAHQAVABhAHMAawAgAD0AIAAkAGEAcwBUAGEAcwBrAC4ASQBuAHYAbwBrAGUAKAAkAG4AdQBsAGwALAAgAEAAKAAkAFcAaQBuAFIAdABBAGMAdABpAG8AbgApACkACgAgACAAIAAgACAAJABuAGUAdABUAGEAcwBrAC4AVwBhAGkAdAAoAC0AMQApACAAfAAgAE8AdQB0AC0ATgB1AGwAbAAKAH0ACgAKAEYAdQBuAGMAdABpAG8AbgAgAFMAZQB0AEgAbwB0AHMAcABvAHQAKAAkAEUAbgBhAGIAbABlACkAIAB7AAoAIAAgACAAIAAgACQAYwBvAG4AbgBlAGMAdABpAG8AbgBQAHIAbwBmAGkAbABlACAAPQAgAFsAVwBpAG4AZABvAHcAcwAuAE4AZQB0AHcAbwByAGsAaQBuAGcALgBDAG8AbgBuAGUAYwB0AGkAdgBpAHQAeQAuAE4AZQB0AHcAbwByAGsASQBuAGYAbwByAG0AYQB0AGkAbwBuACwAVwBpAG4AZABvAHcAcwAuAE4AZQB0AHcAbwByAGsAaQBuAGcALgBDAG8AbgBuAGUAYwB0AGkAdgBpAHQAeQAsAEMAbwBuAHQAZQBuAHQAVAB5AHAAZQA9AFcAaQBuAGQAbwB3AHMAUgB1AG4AdABpAG0AZQBdADoAOgBHAGUAdABJAG4AdABlAHIAbgBlAHQAQwBvAG4AbgBlAGMAdABpAG8AbgBQAHIAbwBmAGkAbABlACgAKQAKACAAIAAgACAAIAAkAHQAZQB0AGgAZQByAGkAbgBnAE0AYQBuAGEAZwBlAHIAIAA9ACAAWwBXAGkAbgBkAG8AdwBzAC4ATgBlAHQAdwBvAHIAawBpAG4AZwAuAE4AZQB0AHcAbwByAGsATwBwAGUAcgBhAHQAbwByAHMALgBOAGUAdAB3AG8AcgBrAE8AcABlAHIAYQB0AG8AcgBUAGUAdABoAGUAcgBpAG4AZwBNAGEAbgBhAGcAZQByACwAVwBpAG4AZABvAHcAcwAuAE4AZQB0AHcAbwByAGsAaQBuAGcALgBOAGUAdAB3AG8AcgBrAE8AcABlAHIAYQB0AG8AcgBzACwAQwBvAG4AdABlAG4AdABUAHkAcABlAD0AVwBpAG4AZABvAHcAcwBSAHUAbgB0AGkAbQBlAF0AOgA6AEMAcgBlAGEAdABlAEYAcgBvAG0AQwBvAG4AbgBlAGMAdABpAG8AbgBQAHIAbwBmAGkAbABlACgAJABjAG8AbgBuAGUAYwB0AGkAbwBuAFAAcgBvAGYAaQBsAGUAKQAKAAoAIAAgACAAIAAgAGkAZgAgACgAJABFAG4AYQBiAGwAZQAgAC0AZQBxACAAMQApACAAewAKACAAIAAgACAAIAAgACAAIAAgAGkAZgAgACgAJAB0AGUAdABoAGUAcgBpAG4AZwBNAGEAbgBhAGcAZQByAC4AVABlAHQAaABlAHIAaQBuAGcATwBwAGUAcgBhAHQAaQBvAG4AYQBsAFMAdABhAHQAZQAgAC0AZQBxACAAMQApAAoAIAAgACAAIAAgACAAIAAgACAAewAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIgBIAG8AdABzAHAAbwB0ACAAaQBzACAAYQBsAHIAZQBhAGQAeQAgAE8AbgAhACIACgAgACAAIAAgACAAIAAgACAAIAB9AAoAIAAgACAAIAAgACAAIAAgACAAZQBsAHMAZQB7AAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAiAEgAbwB0AHMAcABvAHQAIABpAHMAIABvAGYAZgAhACAAVAB1AHIAbgBpAG4AZwAgAGkAdAAgAG8AbgAiAAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIABBAHcAYQBpAHQAIAAoACQAdABlAHQAaABlAHIAaQBuAGcATQBhAG4AYQBnAGUAcgAuAFMAdABhAHIAdABUAGUAdABoAGUAcgBpAG4AZwBBAHMAeQBuAGMAKAApACkAIAAoAFsAVwBpAG4AZABvAHcAcwAuAE4AZQB0AHcAbwByAGsAaQBuAGcALgBOAGUAdAB3AG8AcgBrAE8AcABlAHIAYQB0AG8AcgBzAC4ATgBlAHQAdwBvAHIAawBPAHAAZQByAGEAdABvAHIAVABlAHQAaABlAHIAaQBuAGcATwBwAGUAcgBhAHQAaQBvAG4AUgBlAHMAdQBsAHQAXQApAAoAIAAgACAAIAAgACAAIAAgACAAfQAKACAAIAAgACAAIAB9AAoAIAAgACAAIAAgAGUAbABzAGUAIAB7AAoAIAAgACAAIAAgACAAIAAgACAAaQBmACAAKAAkAHQAZQB0AGgAZQByAGkAbgBnAE0AYQBuAGEAZwBlAHIALgBUAGUAdABoAGUAcgBpAG4AZwBPAHAAZQByAGEAdABpAG8AbgBhAGwAUwB0AGEAdABlACAALQBlAHEAIAAwACkACgAgACAAIAAgACAAIAAgACAAIAB7AAoAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIAAiAEgAbwB0AHMAcABvAHQAIABpAHMAIABhAGwAcgBlAGEAZAB5ACAATwBmAGYAIQAiAAoAIAAgACAAIAAgACAAIAAgACAAfQAKACAAIAAgACAAIAAgACAAIAAgAGUAbABzAGUAewAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAIgBIAG8AdABzAHAAbwB0ACAAaQBzACAAbwBuACEAIABUAHUAcgBuAGkAbgBnACAAaQB0ACAAbwBmAGYAIgAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgACAAQQB3AGEAaQB0ACAAKAAkAHQAZQB0AGgAZQByAGkAbgBnAE0AYQBuAGEAZwBlAHIALgBTAHQAbwBwAFQAZQB0AGgAZQByAGkAbgBnAEEAcwB5AG4AYwAoACkAKQAgACgAWwBXAGkAbgBkAG8AdwBzAC4ATgBlAHQAdwBvAHIAawBpAG4AZwAuAE4AZQB0AHcAbwByAGsATwBwAGUAcgBhAHQAbwByAHMALgBOAGUAdAB3AG8AcgBrAE8AcABlAHIAYQB0AG8AcgBUAGUAdABoAGUAcgBpAG4AZwBPAHAAZQByAGEAdABpAG8AbgBSAGUAcwB1AGwAdABdACkACgAgACAAIAAgACAAIAAgACAAIAB9AAoAIAAgACAAIAAgAH0ACgB9AAoACgBTAGUAdABIAG8AdABzAHAAbwB0ACgAMQApAAoA"
+SERVICE_UUID = "0d1a3c30-10ff-485a-9d37-3ac2501eb953"
+COMMAND_CHAR_UUID = "0d1a3c31-10ff-485a-9d37-3ac2501eb953"
+RESPONSE_CHAR_UUID = "0d1a3c32-10ff-485a-9d37-3ac2501eb953"
+DATA_CHAR_UUID = "0d1a3c33-10ff-485a-9d37-3ac2501eb953"  # For large binary data
+
+ANSI_ESCAPE = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]')
+
+server_instance = None
+MTU_SIZE = 512
+
+def write_request(characteristic: BlessGATTCharacteristic, value: bytearray, **kwargs):
+    """Handle incoming commands from client"""
+    command = value.decode('utf-8')
+    print(f"Client sent command: {command}")
+    
+    # Execute command and get result
+    result, result_type, binary_data = execute_command(command)
+    
+    if server_instance and server_instance.is_connected:
+        response_char = server_instance.get_characteristic(RESPONSE_CHAR_UUID)
+        result_bytes = result.encode('utf-8') if isinstance(result, str) else b""
+        if result_type in ("text", "error") and len(result_bytes) > MTU_SIZE:
+            metadata = f"{result_type}_chunked:{len(result_bytes)}"
+        else:
+            metadata = f"{result_type}:{result}"
+        response_char.value = bytearray(metadata.encode('utf-8'))
+        server_instance.update_value(SERVICE_UUID, RESPONSE_CHAR_UUID)
+        print(f"Sent response: {metadata[:100]}...")
+        
+        if binary_data:
+            loop.create_task(send_binary_data(binary_data))
+        elif result_type in ("text", "error") and len(result_bytes) > MTU_SIZE:
+            loop.create_task(send_text_data(result_bytes))
+
+async def send_binary_data(data: bytes):
+    if not server_instance or not server_instance.is_connected:
+        return
+    
+    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+    total_size = len(data)
+    chunks = (total_size + MTU_SIZE - 1) // MTU_SIZE
+    
+    print(f"Sending {total_size} bytes in {chunks} chunks...")
+    
+    for i in range(0, total_size, MTU_SIZE):
+        chunk = data[i:i + MTU_SIZE]
+        data_char.value = bytearray(chunk)
+        server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+        await asyncio.sleep(0.01)  # Small delay between chunks
+        
+        if (i // MTU_SIZE) % 10 == 0:
+            print(f"Progress: {i}/{total_size} bytes sent")
+    
+    data_char.value = bytearray(b"")
+    server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+    print("Binary data transfer complete")
 
 
-def sc():
-    image = ImageGrab.grab()
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    image.save(f"{SS_FOLDER}\\{current_datetime}.png")
-    print("SCREENSHOT SAVED")
+async def send_text_data(data: bytes):
+    if not server_instance or not server_instance.is_connected:
+        return
 
+    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+    total_size = len(data)
+    # Reserve some bytes for a small ascii header per chunk
+    header_reserved = 64
+    per_chunk = max(1, MTU_SIZE - header_reserved)
+    chunks = (total_size + per_chunk - 1) // per_chunk
+
+    print(f"Sending text {total_size} bytes in {chunks} chunks...")
+
+    seq = 1
+    for i in range(0, total_size, per_chunk):
+        chunk = data[i:i + per_chunk]
+        header = f"{seq}/{chunks}:".encode('utf-8')
+        data_char.value = bytearray(header + chunk)
+        server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+        await asyncio.sleep(0.02)  # Small delay between chunks
+        if seq % 10 == 0:
+            print(f"Text progress: {i}/{total_size} bytes sent (chunk {seq}/{chunks})")
+        seq += 1
+
+    # Send end-of-data marker (empty notification)
+    data_char.value = bytearray(b"")
+    server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+    print("Text data transfer complete")
 
 def execute_command(command):
     try:
         print(f"Executing: {command}")
-        if command == "ss":
-            print("taking SCREENSHOT")
-            sc()
-            return "SCREENSHOT SAVED"
+        
+        if command == "screenshot":
+            image = ImageGrab.grab()
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            
+            # Save to disk
+            filepath = os.path.join(SS_FOLDER, f"{timestamp}.png")
+            image.save(filepath)
+            
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+            
+            return (f"Screenshot captured: {timestamp}.png, {len(img_bytes)} bytes", 
+                    "image", img_bytes)
 
-        elif command.lower().startswith("start "):
-            program = command[6:].strip()
+        elif command.lower().startswith("launch "):
+            program = command[7:].strip()
             subprocess.Popen(program, shell=True)
-            return f"Background process started: {program}"
+            return (f"Launched: {program}", "text", None)
 
         else:
-            # Added timeout to prevent freezing on inputs
             result = subprocess.run(
                 command,
                 shell=True,
-                check=True,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            return result.stdout.strip()
+            
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                return (ANSI_ESCAPE.sub('', output) if output else "Command completed (no output)", 
+                        "text", None)
+            else:
+                return (f"Error (code {result.returncode}): {ANSI_ESCAPE.sub('', result.stderr.strip())}", 
+                        "error", None)
 
-    except subprocess.CalledProcessError as e:
-        return f"ERROR: Command failed.\nSTDERR: {e.stderr.strip()}"
+    except subprocess.TimeoutExpired:
+        return ("ERROR: Command timed out (>10s)", "error", None)
     except Exception as e:
-        return f"ERROR: {e}"
+        return (f"ERROR: {str(e)}", "error", None)
 
+async def run_server(loop):
+    global server_instance
+    
+    # Define GATT structure
+    gatt = {
+        SERVICE_UUID: {
+            COMMAND_CHAR_UUID: {
+                "Properties": GATTCharacteristicProperties.write,
+                "Permissions": GATTAttributePermissions.writeable,
+                "Value": bytearray(b""),
+            },
+            RESPONSE_CHAR_UUID: {
+                "Properties": (GATTCharacteristicProperties.read | 
+                             GATTCharacteristicProperties.notify),
+                "Permissions": GATTAttributePermissions.readable,
+                "Value": bytearray(b"Ready"),
+            },
+            DATA_CHAR_UUID: {
+                "Properties": (GATTCharacteristicProperties.read | 
+                             GATTCharacteristicProperties.notify),
+                "Permissions": GATTAttributePermissions.readable,
+                "Value": bytearray(b""),
+            },
+        },
+    }
 
-def is_hotspot_active():
-    """
-    Checks if the default hotspot IP exists in ipconfig.
-    """
+    server = BlessServer(name="RemoteSS", loop=loop)
+    server.write_request_func = write_request
+    server_instance = server
+    
+    await server.add_gatt(gatt)
+    await server.start()
+
+    print("BLE Server running. Waiting for commands...")
+    print(f"Command UUID: {COMMAND_CHAR_UUID}")
+    print(f"Response UUID: {RESPONSE_CHAR_UUID}")
+    print(f"Data UUID: {DATA_CHAR_UUID}")
+    
+    # Keep server alive
     try:
-        output = subprocess.check_output("ipconfig", text=True)
-        if HOTSPOT_IP in output:
-            return True
-        return False
-    except:
-        return False
-
-
-def turn_on_hotspot():
-    print("Attempting to turn on Mobile Hotspot...")
-    command_args = [
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "-encodedCommand",
-        encd_cmd,
-    ]
-    subprocess.Popen(command_args, creationflags=subprocess.CREATE_NO_WINDOW)
-
-
-def start_server():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((HOST, PORT))
-            s.listen()
-            print(f"Server LISTENING on {HOST}:{PORT}.")
-
-            while True:
-                conn, addr = s.accept()
-                with conn:
-                    print(f"Connected by : {addr}")
-                    while True:
-                        data = conn.recv(1024)
-                        if not data:
-                            break
-                        command = data.decode("utf-8").strip()
-                        print(f"Received: '{command}'")
-                        response_str = execute_command(command)
-                        conn.sendall(response_str.encode("utf-8"))
-                        print(f"Sent response...")
-    except Exception as e:
-        print(f"Server Error: {e}")
-
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        print("\nShutting down...")
 
 if __name__ == "__main__":
-    print("--- SYSTEM CONTROL STARTED ---")
-
-    while True:
-        if is_hotspot_active():
-            print("Hotspot detected (192.168.137.1). Starting Server...")
-            start_server()
-        else:
-            print("Hotspot not detected. Turning it on...")
-            turn_on_hotspot()
-
-            print("Waiting 10 seconds for adapter to initialize...")
-            time.sleep(10)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run_server(loop))

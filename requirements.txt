@@ -1,0 +1,4 @@
+pillow=12.0.0
+bless=0.2.6
+bleak=2.0.0
+bleak-winrt=1.2.0
