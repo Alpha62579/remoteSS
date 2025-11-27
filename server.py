@@ -180,10 +180,7 @@ async def run_server(loop):
     await server.add_gatt(gatt)
     await server.start()
 
-    print("BLE Server running. Waiting for commands...")
-    print(f"Command UUID: {COMMAND_CHAR_UUID}")
-    print(f"Response UUID: {RESPONSE_CHAR_UUID}")
-    print(f"Data UUID: {DATA_CHAR_UUID}")
+    print("RemoteSS running. Waiting for commands...")
     
     # Keep server alive
     try:
