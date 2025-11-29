@@ -122,7 +122,7 @@ def execute_command(command):
 
         elif command.lower().startswith("launch "):
             program = command[7:].strip()
-            subprocess.Popen(program, shell=True)
+            subprocess.Popen(program, shell=True, executable="C:\\Windows\\System32\\WindowsPowershell\\v1.0\\powershell.exe")
             return (f"Launched: {program}", "text", None)
 
         else:
@@ -132,6 +132,7 @@ def execute_command(command):
                 capture_output=True,
                 text=True,
                 timeout=10,
+                executable="C:\\Windows\\System32\\WindowsPowershell\\v1.0\\powershell.exe"
             )
             
             if result.returncode == 0:
